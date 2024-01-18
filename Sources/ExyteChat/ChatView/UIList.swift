@@ -25,7 +25,10 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
 
     var messageBuilder: MessageBuilderClosure?
 
+    let type: ChatType
+    let showDateHeaders: Bool
     let avatarSize: CGFloat
+    let showMessageMenuOnLongPress: Bool
     let tapAvatarClosure: ChatView.TapAvatarClosure?
     let messageUseMarkdown: Bool
     let sections: [MessagesSection]
@@ -44,10 +47,10 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Cell")
-        tableView.transform = CGAffineTransform(rotationAngle: .pi)
+        tableView.transform = CGAffineTransform(rotationAngle: (type == .chat ? .pi : 0))
 
         tableView.showsVerticalScrollIndicator = false
-        tableView.estimatedSectionHeaderHeight = 0
+        tableView.estimatedSectionHeaderHeight = 1
         tableView.estimatedSectionFooterHeight = UITableView.automaticDimension
         tableView.backgroundColor = UIColor(theme.colors.mainBackground)
         tableView.scrollsToTop = false
@@ -243,8 +246,8 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             var newRows = appliedDeletesSwapsAndEdits[newIndex].rows
             let oldRowIDs = Set(oldRows.map { $0.id })
             let newRowIDs = Set(newRows.map { $0.id })
-            let rowIDsToDelete = oldRowIDs.symmetricDifference(newRowIDs)
-            let rowIDsToInsert = newRowIDs.symmetricDifference(oldRowIDs) // TODO is order important?
+            let rowIDsToDelete = oldRowIDs.subtracting(newRowIDs)
+            let rowIDsToInsert = newRowIDs.subtracting(oldRowIDs) // TODO is order important?
             for rowId in rowIDsToDelete {
                 if let index = oldRows.firstIndex(where: { $0.id == rowId }) {
                     oldRows.remove(at: index)
@@ -303,7 +306,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
     // MARK: - Coordinator
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(viewModel: viewModel, paginationState: paginationState, isScrolledToBottom: $isScrolledToBottom, isScrolledToTop: $isScrolledToTop, messageBuilder: messageBuilder, avatarSize: avatarSize, tapAvatarClosure: tapAvatarClosure, messageUseMarkdown: messageUseMarkdown, sections: sections, ids: ids, mainBackgroundColor: theme.colors.mainBackground)
+        Coordinator(viewModel: viewModel, paginationState: paginationState, isScrolledToBottom: $isScrolledToBottom, isScrolledToTop: $isScrolledToTop, messageBuilder: messageBuilder, chatTheme: theme, type: type, showDateHeaders: showDateHeaders, avatarSize: avatarSize, showMessageMenuOnLongPress: showMessageMenuOnLongPress, tapAvatarClosure: tapAvatarClosure, messageUseMarkdown: messageUseMarkdown, sections: sections, ids: ids, mainBackgroundColor: theme.colors.mainBackground)
     }
 
     class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
@@ -316,7 +319,11 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
 
         var messageBuilder: MessageBuilderClosure?
 
+        let chatTheme: ChatTheme
+        let type: ChatType
+        let showDateHeaders: Bool
         let avatarSize: CGFloat
+        let showMessageMenuOnLongPress: Bool
         let tapAvatarClosure: ChatView.TapAvatarClosure?
         let messageUseMarkdown: Bool
         var sections: [MessagesSection]
@@ -324,13 +331,17 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
 
         let mainBackgroundColor: Color
 
-        init(viewModel: ChatViewModel, paginationState: PaginationState, isScrolledToBottom: Binding<Bool>, isScrolledToTop: Binding<Bool>, messageBuilder: MessageBuilderClosure?, avatarSize: CGFloat, tapAvatarClosure: ChatView.TapAvatarClosure?, messageUseMarkdown: Bool, sections: [MessagesSection], ids: [String], mainBackgroundColor: Color) {
+        init(viewModel: ChatViewModel, paginationState: PaginationState, isScrolledToBottom: Binding<Bool>, isScrolledToTop: Binding<Bool>, messageBuilder: MessageBuilderClosure?, chatTheme: ChatTheme, type: ChatType, showDateHeaders: Bool, avatarSize: CGFloat, showMessageMenuOnLongPress: Bool, tapAvatarClosure: ChatView.TapAvatarClosure?, messageUseMarkdown: Bool, sections: [MessagesSection], ids: [String], mainBackgroundColor: Color) {
             self.viewModel = viewModel
             self.paginationState = paginationState
             self._isScrolledToBottom = isScrolledToBottom
             self._isScrolledToTop = isScrolledToTop
             self.messageBuilder = messageBuilder
+            self.chatTheme = chatTheme
+            self.type = type
+            self.showDateHeaders = showDateHeaders
             self.avatarSize = avatarSize
+            self.showMessageMenuOnLongPress = showMessageMenuOnLongPress
             self.tapAvatarClosure = tapAvatarClosure
             self.messageUseMarkdown = messageUseMarkdown
             self.sections = sections
@@ -346,21 +357,45 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             sections[section].rows.count
         }
 
+        func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+            if showDateHeaders, type == .comments {
+                return dateView(section)
+            }
+            return nil
+        }
+
         func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
+            if showDateHeaders, type == .chat {
+                return dateView(section)
+            }
+            return nil
+        }
+
+        func dateView(_ section: Int) -> UIView? {
             let header = UIHostingController(rootView:
                 Text(sections[section].formattedDate)
                     .font(.system(size: 11))
-                    .rotationEffect(Angle(degrees: 180))
+                    .rotationEffect(Angle(degrees: (type == .chat ? 180 : 0)))
                     .padding(10)
                     .padding(.bottom, 8)
                     .foregroundColor(.gray)
             ).view
-            header?.backgroundColor = .clear
+            header?.backgroundColor = UIColor(chatTheme.colors.mainBackground)
             return header
         }
 
         func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-            0.1
+            if !showDateHeaders {
+                return 0.1
+            }
+            return type == .chat ? 0.1 : UITableView.automaticDimension
+        }
+
+        func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+            if !showDateHeaders {
+                return 0.1
+            }
+            return type == .chat ? UITableView.automaticDimension : 0.1
         }
 
         func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -370,18 +405,19 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             tableViewCell.backgroundColor = UIColor(mainBackgroundColor)
 
             let row = sections[indexPath.section].rows[indexPath.row]
+            
             if #available(iOS 16.0, *) {
                 tableViewCell.contentConfiguration = UIHostingConfiguration {
-                    ChatMessageView(viewModel: viewModel, messageBuilder: messageBuilder, row: row, avatarSize: avatarSize, tapAvatarClosure: tapAvatarClosure, messageUseMarkdown: messageUseMarkdown, isDisplayingMessageMenu: false)
+                    ChatMessageView(viewModel: viewModel, messageBuilder: messageBuilder, row: row, chatType: type, avatarSize: avatarSize, tapAvatarClosure: tapAvatarClosure, messageUseMarkdown: messageUseMarkdown, isDisplayingMessageMenu: false)
                         .background(MessageMenuPreferenceViewSetter(id: row.id))
-                        .rotationEffect(Angle(degrees: 180))
+                        .rotationEffect(Angle(degrees: (type == .chat ? 180 : 0)))
                         .onTapGesture { }
-                        .onLongPressGesture {
-                            self.viewModel.messageMenuRow = row
+                        .applyIf(showMessageMenuOnLongPress) {
+                            $0.onLongPressGesture {
+                                self.viewModel.messageMenuRow = row
+                            }
                         }
                 }
-                .minSize(width: 0, height: 0)
-                .margins(.all, 0)
             } else {
                 // Fallback on earlier versions
             }

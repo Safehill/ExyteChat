@@ -417,7 +417,9 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
                                 self.viewModel.messageMenuRow = row
                             }
                         }
+                        .padding(0)
                 }
+                .margins(.all, 0)
             } else {
                 // Fallback on earlier versions
             }

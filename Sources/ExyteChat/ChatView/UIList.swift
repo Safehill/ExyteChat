@@ -41,7 +41,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
     @State private var tableSemaphore = DispatchSemaphore(value: 0)
     
     func makeTableFooter() -> UIView {
-        let customView = UIView(frame: CGRect(x: 0, y: 0, width: 200, height: 40))
+        let customView = UIView(frame: CGRect(x: 0, y: 0, width: 200, height: 20))
         customView.backgroundColor = UIColor(theme.colors.mainBackground)
         customView.transform = CGAffineTransform(rotationAngle: .pi)
         return customView

@@ -39,6 +39,13 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
     private let updatesQueue = DispatchQueue(label: "updatesQueue", qos: .utility)
     @State private var updateSemaphore = DispatchSemaphore(value: 1)
     @State private var tableSemaphore = DispatchSemaphore(value: 0)
+    
+    func makeTableFooter() -> UIView {
+        let customView = UIView(frame: CGRect(x: 0, y: 0, width: 200, height: 40))
+        customView.backgroundColor = UIColor(theme.colors.mainBackground)
+        customView.transform = CGAffineTransform(rotationAngle: .pi)
+        return customView
+    }
 
     func makeUIView(context: Context) -> UITableView {
         let tableView = UITableView(frame: .zero, style: .grouped)
@@ -54,6 +61,10 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         tableView.estimatedSectionFooterHeight = UITableView.automaticDimension
         tableView.backgroundColor = UIColor(theme.colors.mainBackground)
         tableView.scrollsToTop = false
+        
+        if type == .chat {
+            tableView.tableHeaderView = makeTableFooter()
+        }
 
         NotificationCenter.default.addObserver(forName: .onScrollToBottom, object: nil, queue: nil) { _ in
             DispatchQueue.main.async {

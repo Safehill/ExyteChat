@@ -111,6 +111,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View>: View {
             case .chat:
                 ZStack(alignment: .bottomTrailing) {
                     list
+                        .padding(.bottom, 8)
 
                     if !isScrolledToBottom {
                         Button {

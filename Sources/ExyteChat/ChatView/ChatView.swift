@@ -114,7 +114,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View>: View {
 
                     if !isScrolledToBottom {
                         Button {
-                            NotificationCenter.default.post(name: .onScrollToBottom, object: nil)
+                            NotificationCenter.default.post(name: .onChatViewScrollToBottom, object: nil)
                         } label: {
                             theme.images.scrollToBottom
                                 .frame(width: 40, height: 40)
@@ -247,7 +247,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View>: View {
             inputViewModel.didSendMessage = { value in
                 didSendMessage(value)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    NotificationCenter.default.post(name: .onScrollToBottom, object: nil)
+                    NotificationCenter.default.post(name: .onChatViewScrollToBottom, object: nil)
                 }
             }
         }

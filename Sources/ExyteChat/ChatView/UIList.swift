@@ -8,7 +8,8 @@
 import SwiftUI
 
 public extension Notification.Name {
-    static let onScrollToBottom = Notification.Name("onScrollToBottom")
+    static let onChatViewScrollToBottom = Notification.Name("onChatViewScrollToBottom")
+    static let onChatViewScroll = Notification.Name("onChatViewScroll")
 }
 
 struct UIList<MessageContent: View>: UIViewRepresentable {
@@ -41,7 +42,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
     @State private var tableSemaphore = DispatchSemaphore(value: 0)
     
     func makeTableFooter() -> UIView {
-        let customView = UIView(frame: CGRect(x: 0, y: 0, width: 200, height: 20))
+        let customView = UIView(frame: CGRect(x: 0, y: 0, width: 200, height: 5))
         customView.backgroundColor = UIColor(theme.colors.mainBackground)
         customView.transform = CGAffineTransform(rotationAngle: .pi)
         return customView
@@ -66,7 +67,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             tableView.tableHeaderView = makeTableFooter()
         }
 
-        NotificationCenter.default.addObserver(forName: .onScrollToBottom, object: nil, queue: nil) { _ in
+        NotificationCenter.default.addObserver(forName: .onChatViewScrollToBottom, object: nil, queue: nil) { _ in
             DispatchQueue.main.async {
                 if !context.coordinator.sections.isEmpty {
                     tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .bottom, animated: true)
@@ -83,7 +84,87 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         return tableView
     }
 
+    /// PATCHED
     func updateUIView(_ tableView: UITableView, context: Context) {
+        if context.coordinator.sections == sections {
+            return
+        }
+
+        updatesQueue.async {
+            updateSemaphore.wait()
+            
+            if context.coordinator.sections == sections {
+                updateSemaphore.signal()
+                return
+            }
+            
+            // step 1
+            // preapare intermediate sections and operations
+            let prevSections = context.coordinator.sections
+            let (appliedDeletes, appliedDeletesSwapsAndEdits, deleteOperations, swapOperations, editOperations, insertOperations) = operationsSplit(oldSections: prevSections, newSections: sections)
+            
+            //print("1 updateUIView sections:", "\n")
+            //print("whole previous:\n", formatSections(prevSections), "\n")
+            //print("whole appliedDeletes:\n", formatSections(appliedDeletes), "\n")
+            //print("whole appliedDeletesSwapsAndEdits:\n", formatSections(appliedDeletesSwapsAndEdits), "\n")
+            //print("whole final sections:\n", formatSections(sections), "\n")
+            
+            //print("operations delete:\n", deleteOperations)
+            //print("operations swap:\n", swapOperations)
+            //print("operations edit:\n", editOperations)
+            //print("operations insert:\n", insertOperations)
+            
+            DispatchQueue.main.async {
+                tableView.performBatchUpdates {
+                    // step 2
+                    // delete sections and rows if necessary
+                    //print("2 apply delete")
+                    for operation in deleteOperations {
+                        applyOperation(operation, tableView: tableView)
+                    }
+                    
+                    // step 3
+                    // swap places for rows that moved inside the table
+                    // (example of how this happens. send two messages: first m1, then m2. if m2 is delivered to server faster, then it should jump above m1 even though it was sent later)
+                    //print("3 apply swaps")
+                    context.coordinator.sections = appliedDeletesSwapsAndEdits // NOTE: this array already contains necessary edits, but won't be a problem for appplying swaps
+                    for operation in swapOperations {
+                        applyOperation(operation, tableView: tableView)
+                    }
+                    
+                    // step 4
+                    // check only sections that are already in the table for existing rows that changed and apply only them to table's dataSource without animation
+                    //print("4 apply edits")
+                    context.coordinator.sections = appliedDeletesSwapsAndEdits
+                    for operation in editOperations {
+                        applyOperation(operation, tableView: tableView)
+                    }
+                    
+                    if isScrolledToBottom || isScrolledToTop {
+                        
+                        //                DispatchQueue.main.async {
+                        // step 5
+                        // apply the rest of the changes to table's dataSource, i.e. inserts
+                        //print("5 apply inserts")
+                        context.coordinator.sections = sections
+                        context.coordinator.ids = ids
+                        
+                        tableView.performBatchUpdates {
+                            for operation in insertOperations {
+                                applyOperation(operation, tableView: tableView)
+                            }
+                        }
+                    } else {
+                        context.coordinator.ids = ids
+                    }
+                    
+                    updateSemaphore.signal()
+                }
+            }
+        }
+    }
+
+    func _legacy_updateUIView(_ tableView: UITableView, context: Context) {
         if context.coordinator.sections == sections {
             return
         }
@@ -385,7 +466,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         func dateView(_ section: Int) -> UIView? {
             let header = UIHostingController(rootView:
                 Text(sections[section].formattedDate)
-                    .font(.system(size: 11))
+                    .font(.caption2)
                     .rotationEffect(Angle(degrees: (type == .chat ? 180 : 0)))
                     .padding(10)
                     .padding(.bottom, 8)
@@ -446,6 +527,14 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             isScrolledToBottom = scrollView.contentOffset.y <= 0
             isScrolledToTop = scrollView.contentOffset.y >= scrollView.contentSize.height - scrollView.frame.height - 1
+            
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .onChatViewScroll, object: nil, userInfo: [
+                    "contentOffsetY": scrollView.contentOffset.y,
+                    "contentHeight": scrollView.contentSize.height,
+                    "frameHeight": scrollView.frame.height
+                ])
+            }
         }
     }
 

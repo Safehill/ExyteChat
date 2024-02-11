@@ -90,18 +90,16 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             return
         }
 
-        updatesQueue.async {
-            updateSemaphore.wait()
+        updatesQueue.sync(flags: .barrier) {
             
             if context.coordinator.sections == sections {
-                updateSemaphore.signal()
                 return
             }
             
             // step 1
             // preapare intermediate sections and operations
             let prevSections = context.coordinator.sections
-            let (appliedDeletes, appliedDeletesSwapsAndEdits, deleteOperations, swapOperations, editOperations, insertOperations) = operationsSplit(oldSections: prevSections, newSections: sections)
+            let (_, appliedDeletesSwapsAndEdits, deleteOperations, swapOperations, editOperations, insertOperations) = operationsSplit(oldSections: prevSections, newSections: sections)
             
             //print("1 updateUIView sections:", "\n")
             //print("whole previous:\n", formatSections(prevSections), "\n")
@@ -157,8 +155,6 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
                     } else {
                         context.coordinator.ids = ids
                     }
-                    
-                    updateSemaphore.signal()
                 }
             }
         }

@@ -494,23 +494,19 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
 
             let row = sections[indexPath.section].rows[indexPath.row]
             
-            if #available(iOS 16.0, *) {
-                tableViewCell.contentConfiguration = UIHostingConfiguration {
-                    ChatMessageView(viewModel: viewModel, messageBuilder: messageBuilder, row: row, chatType: type, avatarSize: avatarSize, tapAvatarClosure: tapAvatarClosure, messageUseMarkdown: messageUseMarkdown, isDisplayingMessageMenu: false)
-                        .background(MessageMenuPreferenceViewSetter(id: row.id))
-                        .rotationEffect(Angle(degrees: (type == .chat ? 180 : 0)))
-                        .onTapGesture { }
-                        .applyIf(showMessageMenuOnLongPress) {
-                            $0.onLongPressGesture {
-                                self.viewModel.messageMenuRow = row
-                            }
+            tableViewCell.contentConfiguration = UIHostingConfiguration {
+                ChatMessageView(viewModel: viewModel, messageBuilder: messageBuilder, row: row, chatType: type, avatarSize: avatarSize, tapAvatarClosure: tapAvatarClosure, messageUseMarkdown: messageUseMarkdown, isDisplayingMessageMenu: false)
+                    .background(MessageMenuPreferenceViewSetter(id: row.id))
+                    .rotationEffect(Angle(degrees: (type == .chat ? 180 : 0)))
+                    .onTapGesture { }
+                    .applyIf(showMessageMenuOnLongPress) {
+                        $0.onLongPressGesture {
+                            self.viewModel.messageMenuRow = row
                         }
-                        .padding(0)
-                }
-                .margins(.all, 0)
-            } else {
-                // Fallback on earlier versions
+                    }
+                    .padding(0)
             }
+            .margins(.all, 0)
 
             return tableViewCell
         }

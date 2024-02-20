@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+import os
+
+let log = Logger(subsystem: "com.exyte.ExyteChat", category: "chat")
 
 public extension Notification.Name {
     static let onChatViewScrollToBottom = Notification.Name("onChatViewScrollToBottom")
@@ -37,7 +40,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
 
     @State private var isScrolledToTop = false
 
-    private let updatesQueue = DispatchQueue(label: "updatesQueue", qos: .utility)
+    private let updatesQueue = DispatchQueue(label: "updatesQueue")
     @State private var updateSemaphore = DispatchSemaphore(value: 1)
     @State private var tableSemaphore = DispatchSemaphore(value: 0)
     
@@ -90,33 +93,36 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             return
         }
 
-        updatesQueue.sync(flags: .barrier) {
+        updatesQueue.async {
+            updateSemaphore.wait()
             
             if context.coordinator.sections == sections {
+                updateSemaphore.signal()
                 return
             }
             
             // step 1
             // preapare intermediate sections and operations
             let prevSections = context.coordinator.sections
-            let (_, appliedDeletesSwapsAndEdits, deleteOperations, swapOperations, editOperations, insertOperations) = operationsSplit(oldSections: prevSections, newSections: sections)
+            let (appliedDeletes, appliedDeletesSwapsAndEdits, deleteOperations, swapOperations, editOperations, insertOperations) = operationsSplit(oldSections: prevSections, newSections: sections)
             
-            //print("1 updateUIView sections:", "\n")
-            //print("whole previous:\n", formatSections(prevSections), "\n")
-            //print("whole appliedDeletes:\n", formatSections(appliedDeletes), "\n")
-            //print("whole appliedDeletesSwapsAndEdits:\n", formatSections(appliedDeletesSwapsAndEdits), "\n")
-            //print("whole final sections:\n", formatSections(sections), "\n")
+            log.debug("[uilist] 1 updateUIView sections:")
+            log.debug("[uilist] whole previous: \(formatSections(prevSections))")
+            log.debug("[uilist] whole appliedDeletes: \(formatSections(appliedDeletes))")
+            log.debug("[uilist] whole appliedDeletesSwapsAndEdits: \(formatSections(appliedDeletesSwapsAndEdits))")
+            log.debug("[uilist] whole final sections: \(formatSections(sections))")
             
-            //print("operations delete:\n", deleteOperations)
-            //print("operations swap:\n", swapOperations)
-            //print("operations edit:\n", editOperations)
-            //print("operations insert:\n", insertOperations)
+            log.debug("[uilist] operations delete: \(deleteOperations)")
+            log.debug("[uilist] operations swap: \(swapOperations)")
+            log.debug("[uilist] operations edit: \(editOperations)")
+            log.debug("[uilist] operations insert: \(insertOperations)")
             
             DispatchQueue.main.async {
                 tableView.performBatchUpdates {
                     // step 2
                     // delete sections and rows if necessary
-                    //print("2 apply delete")
+                    log.debug("[uilist] 2 apply delete")
+                    context.coordinator.sections = appliedDeletes
                     for operation in deleteOperations {
                         applyOperation(operation, tableView: tableView)
                     }
@@ -124,7 +130,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
                     // step 3
                     // swap places for rows that moved inside the table
                     // (example of how this happens. send two messages: first m1, then m2. if m2 is delivered to server faster, then it should jump above m1 even though it was sent later)
-                    //print("3 apply swaps")
+                    log.debug("[uilist] 3 apply swaps")
                     context.coordinator.sections = appliedDeletesSwapsAndEdits // NOTE: this array already contains necessary edits, but won't be a problem for appplying swaps
                     for operation in swapOperations {
                         applyOperation(operation, tableView: tableView)
@@ -132,28 +138,31 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
                     
                     // step 4
                     // check only sections that are already in the table for existing rows that changed and apply only them to table's dataSource without animation
-                    //print("4 apply edits")
+                    log.debug("[uilist] 4 apply edits")
                     context.coordinator.sections = appliedDeletesSwapsAndEdits
                     for operation in editOperations {
                         applyOperation(operation, tableView: tableView)
                     }
+                } completion: { _ in
                     
                     if isScrolledToBottom || isScrolledToTop {
                         
-                        //                DispatchQueue.main.async {
                         // step 5
                         // apply the rest of the changes to table's dataSource, i.e. inserts
-                        //print("5 apply inserts")
+                        log.debug("[uilist] 5 apply inserts")
                         context.coordinator.sections = sections
                         context.coordinator.ids = ids
                         
-                        tableView.performBatchUpdates {
-                            for operation in insertOperations {
-                                applyOperation(operation, tableView: tableView)
-                            }
+                        tableView.beginUpdates()
+                        for operation in insertOperations {
+                            applyOperation(operation, tableView: tableView)
                         }
+                        tableView.endUpdates()
+                        
+                        updateSemaphore.signal()
                     } else {
                         context.coordinator.ids = ids
+                        updateSemaphore.signal()
                     }
                 }
             }
@@ -530,23 +539,23 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         }
     }
 
-//    func formatRow(_ row: MessageRow) -> String {
-//        if let status = row.message.status {
-//            return String("id: \(row.id) text: \(row.message.text) status: \(status) date: \(row.message.createdAt) position: \(row.positionInGroup)")
-//        }
-//        return ""
-//    }
-//
-//    func formatSections(_ sections: [MessagesSection]) -> String {
-//        var res = "{\n"
-//        for section in sections.reversed() {
-//            res += String("\t{\n")
-//            for row in section.rows {
-//                res += String("\t\t\(formatRow(row))\n")
-//            }
-//            res += String("\t}\n")
-//        }
-//        res += String("}")
-//        return res
-//    }
+    func formatRow(_ row: MessageRow) -> String {
+        if let status = row.message.status {
+            return String("id: \(row.id) text: \(row.message.text) status: \(status) date: \(row.message.createdAt) position: \(row.positionInGroup)")
+        }
+        return ""
+    }
+
+    func formatSections(_ sections: [MessagesSection]) -> String {
+        var res = "{\n"
+        for section in sections.reversed() {
+            res += String("\t{\n")
+            for row in section.rows {
+                res += String("\t\t\(formatRow(row))\n")
+            }
+            res += String("\t}\n")
+        }
+        res += String("}")
+        return res
+    }
 }

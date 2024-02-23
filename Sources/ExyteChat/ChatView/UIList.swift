@@ -118,51 +118,53 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             log.debug("[uilist] operations insert: \(insertOperations)")
             
             DispatchQueue.main.async {
-                tableView.performBatchUpdates {
-                    // step 2
-                    // delete sections and rows if necessary
-                    log.debug("[uilist] 2 apply delete")
-                    context.coordinator.sections = appliedDeletes
-                    for operation in deleteOperations {
-                        applyOperation(operation, tableView: tableView)
-                    }
-                    
-                    // step 3
-                    // swap places for rows that moved inside the table
-                    // (example of how this happens. send two messages: first m1, then m2. if m2 is delivered to server faster, then it should jump above m1 even though it was sent later)
-                    log.debug("[uilist] 3 apply swaps")
-                    context.coordinator.sections = appliedDeletesSwapsAndEdits // NOTE: this array already contains necessary edits, but won't be a problem for appplying swaps
-                    for operation in swapOperations {
-                        applyOperation(operation, tableView: tableView)
-                    }
-                    
-                    // step 4
-                    // check only sections that are already in the table for existing rows that changed and apply only them to table's dataSource without animation
-                    log.debug("[uilist] 4 apply edits")
-                    context.coordinator.sections = appliedDeletesSwapsAndEdits
-                    for operation in editOperations {
-                        applyOperation(operation, tableView: tableView)
-                    }
-                } completion: { _ in
-                    
-                    if isScrolledToBottom || isScrolledToTop {
-                        
-                        // step 5
-                        // apply the rest of the changes to table's dataSource, i.e. inserts
-                        log.debug("[uilist] 5 apply inserts")
-                        context.coordinator.sections = sections
-                        context.coordinator.ids = ids
-                        
-                        tableView.beginUpdates()
-                        for operation in insertOperations {
+                UIView.performWithoutAnimation {
+                    tableView.performBatchUpdates {
+                        // step 2
+                        // delete sections and rows if necessary
+                        log.debug("[uilist] 2 apply delete")
+                        context.coordinator.sections = appliedDeletes
+                        for operation in deleteOperations {
                             applyOperation(operation, tableView: tableView)
                         }
-                        tableView.endUpdates()
                         
-                        updateSemaphore.signal()
-                    } else {
-                        context.coordinator.ids = ids
-                        updateSemaphore.signal()
+                        // step 3
+                        // swap places for rows that moved inside the table
+                        // (example of how this happens. send two messages: first m1, then m2. if m2 is delivered to server faster, then it should jump above m1 even though it was sent later)
+                        log.debug("[uilist] 3 apply swaps")
+                        context.coordinator.sections = appliedDeletesSwapsAndEdits // NOTE: this array already contains necessary edits, but won't be a problem for appplying swaps
+                        for operation in swapOperations {
+                            applyOperation(operation, tableView: tableView)
+                        }
+                        
+                        // step 4
+                        // check only sections that are already in the table for existing rows that changed and apply only them to table's dataSource without animation
+                        log.debug("[uilist] 4 apply edits")
+                        context.coordinator.sections = appliedDeletesSwapsAndEdits
+                        for operation in editOperations {
+                            applyOperation(operation, tableView: tableView)
+                        }
+                    } completion: { _ in
+                        
+                        if isScrolledToBottom || isScrolledToTop {
+                            
+                            // step 5
+                            // apply the rest of the changes to table's dataSource, i.e. inserts
+                            log.debug("[uilist] 5 apply inserts")
+                            context.coordinator.sections = sections
+                            context.coordinator.ids = ids
+                            
+                            tableView.beginUpdates()
+                            for operation in insertOperations {
+                                applyOperation(operation, tableView: tableView)
+                            }
+                            tableView.endUpdates()
+                            
+                            updateSemaphore.signal()
+                        } else {
+                            context.coordinator.ids = ids
+                            updateSemaphore.signal()
+                        }
                     }
                 }
             }
@@ -284,19 +286,19 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
     func applyOperation(_ operation: Operation, tableView: UITableView) {
         switch operation {
         case .deleteSection(let section):
-            tableView.deleteSections([section], with: .top)
+            tableView.deleteSections([section], with: .none)
         case .insertSection(let section):
-            tableView.insertSections([section], with: .top)
+            tableView.insertSections([section], with: .none)
 
         case .delete(let section, let row):
-            tableView.deleteRows(at: [IndexPath(row: row, section: section)], with: .top)
+            tableView.deleteRows(at: [IndexPath(row: row, section: section)], with: .none)
         case .insert(let section, let row):
-            tableView.insertRows(at: [IndexPath(row: row, section: section)], with: .top)
+            tableView.insertRows(at: [IndexPath(row: row, section: section)], with: .none)
         case .edit(let section, let row):
             tableView.reloadRows(at: [IndexPath(row: row, section: section)], with: .none)
         case .swap(let section, let rowFrom, let rowTo):
-            tableView.deleteRows(at: [IndexPath(row: rowFrom, section: section)], with: .top)
-            tableView.insertRows(at: [IndexPath(row: rowTo, section: section)], with: .top)
+            tableView.deleteRows(at: [IndexPath(row: rowFrom, section: section)], with: .none)
+            tableView.insertRows(at: [IndexPath(row: rowTo, section: section)], with: .none)
         }
     }
 

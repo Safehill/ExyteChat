@@ -40,7 +40,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
 
     @State private var isScrolledToTop = false
 
-    private let updatesQueue = DispatchQueue(label: "updatesQueue")
+    private let updatesQueue = DispatchQueue(label: "updatesQueue", qos: .userInteractive)
     @State private var updateSemaphore = DispatchSemaphore(value: 1)
     @State private var tableSemaphore = DispatchSemaphore(value: 0)
     

@@ -15,6 +15,41 @@ public extension Notification.Name {
     static let onChatViewScroll = Notification.Name("onChatViewScroll")
 }
 
+class OrderedSemaphore {
+    private let semaphore: DispatchSemaphore
+    private let serialQueue: DispatchQueue
+    private var waitingThreads = [String: DispatchQueue]()
+
+    init(initialValue: Int) {
+        semaphore = DispatchSemaphore(value: initialValue)
+        serialQueue = DispatchQueue(label: "OrderedSemaphoreQueue.serial")
+    }
+
+    func wait(id: String? = nil) {
+        let id = id ?? UUID().uuidString
+        let currentQueue = DispatchQueue(label: id)
+        serialQueue.sync {
+            waitingThreads[id] = currentQueue
+        }
+        currentQueue.sync {
+            semaphore.wait()
+        }
+    }
+
+    func signal() {
+        serialQueue.async {
+            guard let (id, next) = self.waitingThreads.first else {
+                self.semaphore.signal()
+                return
+            }
+            self.waitingThreads.removeValue(forKey: id)
+            next.async {
+                self.semaphore.signal()
+            }
+        }
+    }
+}
+
 struct UIList<MessageContent: View>: UIViewRepresentable {
 
     typealias MessageBuilderClosure = ChatView<MessageContent, EmptyView>.MessageBuilderClosure
@@ -40,8 +75,17 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
 
     @State private var isScrolledToTop = false
 
-    private let updatesQueue = DispatchQueue(label: "updatesQueue", qos: .userInteractive)
-    @State private var updateSemaphore = DispatchSemaphore(value: 1)
+    private let concurrentUpdatesQueue = DispatchQueue(
+        label: "updatesQueue",
+        qos: .userInteractive,
+        attributes: .concurrent
+    )
+    private let updatesQueue = DispatchQueue(
+        label: "updatesQueue",
+        qos: .userInteractive
+    )
+    @State private var orderedSemaphore = OrderedSemaphore(initialValue: 1)
+    @State private var updateSemaphore = DispatchSemaphore(value: 0)
     @State private var tableSemaphore = DispatchSemaphore(value: 0)
     
     func makeTableFooter() -> UIView {
@@ -86,71 +130,63 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
 
         return tableView
     }
-
-    /// PATCHED
-    func updateUIView(_ tableView: UITableView, context: Context) {
-        if context.coordinator.sections == sections {
-            return
-        }
-
-        updatesQueue.async {
-            updateSemaphore.wait()
-            
-            if context.coordinator.sections == sections {
-                updateSemaphore.signal()
-                return
-            }
-            
-            // step 1
-            // preapare intermediate sections and operations
-            let prevSections = context.coordinator.sections
-            let (appliedDeletes, appliedDeletesSwapsAndEdits, deleteOperations, swapOperations, editOperations, insertOperations) = operationsSplit(oldSections: prevSections, newSections: sections)
-            
-            log.debug("[uilist] 1 updateUIView sections:")
-            log.debug("[uilist] whole previous: \(formatSections(prevSections))")
-            log.debug("[uilist] whole appliedDeletes: \(formatSections(appliedDeletes))")
-            log.debug("[uilist] whole appliedDeletesSwapsAndEdits: \(formatSections(appliedDeletesSwapsAndEdits))")
-            log.debug("[uilist] whole final sections: \(formatSections(sections))")
-            
-            log.debug("[uilist] operations delete: \(deleteOperations)")
-            log.debug("[uilist] operations swap: \(swapOperations)")
-            log.debug("[uilist] operations edit: \(editOperations)")
-            log.debug("[uilist] operations insert: \(insertOperations)")
-            
-            DispatchQueue.main.async {
-                UIView.performWithoutAnimation {
-                    tableView.performBatchUpdates {
-                        // step 2
-                        // delete sections and rows if necessary
-                        log.debug("[uilist] 2 apply delete")
-                        context.coordinator.sections = appliedDeletes
-                        for operation in deleteOperations {
-                            applyOperation(operation, tableView: tableView)
-                        }
-                        
-                        // step 3
-                        // swap places for rows that moved inside the table
-                        // (example of how this happens. send two messages: first m1, then m2. if m2 is delivered to server faster, then it should jump above m1 even though it was sent later)
-                        log.debug("[uilist] 3 apply swaps")
-                        context.coordinator.sections = appliedDeletesSwapsAndEdits // NOTE: this array already contains necessary edits, but won't be a problem for appplying swaps
-                        for operation in swapOperations {
-                            applyOperation(operation, tableView: tableView)
-                        }
-                        
-                        // step 4
-                        // check only sections that are already in the table for existing rows that changed and apply only them to table's dataSource without animation
-                        log.debug("[uilist] 4 apply edits")
-                        context.coordinator.sections = appliedDeletesSwapsAndEdits
-                        for operation in editOperations {
-                            applyOperation(operation, tableView: tableView)
-                        }
-                    } completion: { _ in
-                        
+    
+    private func performUpdates(
+        on tableView: UITableView,
+        context: Context,
+        id: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        // step 1
+        // preapare intermediate sections and operations
+        let prevSections = context.coordinator.sections
+        let (appliedDeletes, appliedDeletesSwapsAndEdits, deleteOperations, swapOperations, editOperations, insertOperations) = operationsSplit(oldSections: prevSections, newSections: sections)
+        
+        log.debug("[uilist] 1 updateUIView sections:")
+        log.debug("[uilist] whole previous: \(formatSections(prevSections))")
+        log.debug("[uilist] whole appliedDeletes: \(formatSections(appliedDeletes))")
+        log.debug("[uilist] whole appliedDeletesSwapsAndEdits: \(formatSections(appliedDeletesSwapsAndEdits))")
+        log.debug("[uilist] whole final sections: \(formatSections(sections))")
+        
+        log.debug("[uilist] operations delete: \(deleteOperations)")
+        log.debug("[uilist] operations swap: \(swapOperations)")
+        log.debug("[uilist] operations edit: \(editOperations)")
+        log.debug("[uilist] operations insert: \(insertOperations)")
+        
+        DispatchQueue.main.async {
+            UIView.performWithoutAnimation {
+                tableView.performBatchUpdates {
+                    // step 2
+                    // delete sections and rows if necessary
+                    log.debug("[uilist] 2 apply delete \(id)")
+                    context.coordinator.sections = appliedDeletes
+                    for operation in deleteOperations {
+                        applyOperation(operation, tableView: tableView)
+                    }
+                    
+                    // step 3
+                    // swap places for rows that moved inside the table
+                    // (example of how this happens. send two messages: first m1, then m2. if m2 is delivered to server faster, then it should jump above m1 even though it was sent later)
+                    log.debug("[uilist] 3 apply swaps \(id)")
+                    context.coordinator.sections = appliedDeletesSwapsAndEdits // NOTE: this array already contains necessary edits, but won't be a problem for appplying swaps
+                    for operation in swapOperations {
+                        applyOperation(operation, tableView: tableView)
+                    }
+                    
+                    // step 4
+                    // check only sections that are already in the table for existing rows that changed and apply only them to table's dataSource without animation
+                    log.debug("[uilist] 4 apply edits \(id)")
+                    context.coordinator.sections = appliedDeletesSwapsAndEdits
+                    for operation in editOperations {
+                        applyOperation(operation, tableView: tableView)
+                    }
+                } completion: { _ in
+                    UIView.performWithoutAnimation {
                         if isScrolledToBottom || isScrolledToTop {
                             
                             // step 5
                             // apply the rest of the changes to table's dataSource, i.e. inserts
-                            log.debug("[uilist] 5 apply inserts")
+                            log.debug("[uilist] 5 apply inserts \(id)")
                             context.coordinator.sections = sections
                             context.coordinator.ids = ids
                             
@@ -159,14 +195,33 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
                                 applyOperation(operation, tableView: tableView)
                             }
                             tableView.endUpdates()
-                            
-                            updateSemaphore.signal()
                         } else {
                             context.coordinator.ids = ids
-                            updateSemaphore.signal()
                         }
+                        
+                        completionHandler()
                     }
                 }
+            }
+        }
+    }
+
+    /// PATCHED
+    func updateUIView(_ tableView: UITableView, context: Context) {
+        updatesQueue.async {
+            if context.coordinator.sections == sections {
+                return
+            }
+            
+            let id = UUID().uuidString
+            
+            log.debug("[uilist] 0 apply wait \(id)")
+            orderedSemaphore.wait(id: id)
+            log.debug("[uilist] 1 apply wait ended \(id)")
+            
+            performUpdates(on: tableView, context: context, id: id) {
+                log.debug("[uilist] 6 apply signal \(id)")
+                orderedSemaphore.signal()
             }
         }
     }

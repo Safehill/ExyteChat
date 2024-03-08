@@ -22,12 +22,12 @@ class OrderedSemaphore {
 
     init(initialValue: Int) {
         semaphore = DispatchSemaphore(value: initialValue)
-        serialQueue = DispatchQueue(label: "OrderedSemaphoreQueue.serial")
+        serialQueue = DispatchQueue(label: "OrderedSemaphoreQueue.serial", qos: .userInteractive)
     }
 
     func wait(id: String? = nil) {
         let id = id ?? UUID().uuidString
-        let currentQueue = DispatchQueue(label: id)
+        let currentQueue = DispatchQueue(label: id, qos: .userInteractive)
         serialQueue.sync {
             waitingThreads[id] = currentQueue
         }
@@ -75,15 +75,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
 
     @State private var isScrolledToTop = false
 
-    private let concurrentUpdatesQueue = DispatchQueue(
-        label: "updatesQueue",
-        qos: .userInteractive,
-        attributes: .concurrent
-    )
-    private let updatesQueue = DispatchQueue(
-        label: "updatesQueue",
-        qos: .userInteractive
-    )
+    private let updatesQueue = DispatchQueue(label: "updatesQueue", qos: .userInteractive)
     @State private var orderedSemaphore = OrderedSemaphore(initialValue: 1)
     @State private var updateSemaphore = DispatchSemaphore(value: 0)
     @State private var tableSemaphore = DispatchSemaphore(value: 0)

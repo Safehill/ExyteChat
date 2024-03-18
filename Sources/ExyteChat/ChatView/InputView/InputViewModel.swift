@@ -34,11 +34,9 @@ final class InputViewModel: ObservableObject {
     }
 
     func reset() {
-        DispatchQueue.main.async { [weak self] in
-            self?.attachments = InputViewAttachments()
-            self?.showPicker = false
-            self?.state = .empty
-        }
+        self.attachments = InputViewAttachments()
+        self.showPicker = false
+        self.state = .empty
     }
 
     func send() {

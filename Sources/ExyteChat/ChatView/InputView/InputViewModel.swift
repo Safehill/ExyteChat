@@ -34,6 +34,7 @@ final class InputViewModel: ObservableObject {
     }
 
     func reset() {
+        log.debug("[chatinputview] reset called")
         self.attachments = InputViewAttachments()
         self.showPicker = false
         self.state = .empty
@@ -198,6 +199,7 @@ private extension InputViewModel {
                 )
             }
             .sink { [weak self] draft in
+                log.debug("[chatinputview] sink after send")
                 DispatchQueue.main.async { [self, draft] in
                     self?.showActivityIndicator = false
                     self?.didSendMessage?(draft)

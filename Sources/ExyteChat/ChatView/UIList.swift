@@ -101,6 +101,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         tableView.estimatedSectionFooterHeight = UITableView.automaticDimension
         tableView.backgroundColor = UIColor(theme.colors.mainBackground)
         tableView.scrollsToTop = false
+        tableView.keyboardDismissMode = .onDrag
         
         if type == .chat {
             tableView.tableHeaderView = makeTableFooter()

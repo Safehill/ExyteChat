@@ -18,6 +18,7 @@ public extension Notification.Name {
 class OrderedSemaphore {
     private let semaphore: DispatchSemaphore
     private let serialQueue: DispatchQueue
+    private var orderedWaitingThreadsIds = [String]()
     private var waitingThreads = [String: DispatchQueue]()
 
     init(initialValue: Int) {
@@ -29,6 +30,7 @@ class OrderedSemaphore {
         let id = id ?? UUID().uuidString
         let currentQueue = DispatchQueue(label: id, qos: .userInteractive)
         serialQueue.sync {
+            orderedWaitingThreadsIds.append(id)
             waitingThreads[id] = currentQueue
         }
         currentQueue.sync {
@@ -38,10 +40,15 @@ class OrderedSemaphore {
 
     func signal() {
         serialQueue.async {
-            guard let (id, next) = self.waitingThreads.first else {
+            guard let id = self.orderedWaitingThreadsIds.first else {
                 self.semaphore.signal()
                 return
             }
+            guard let next = self.waitingThreads[id] else {
+                self.semaphore.signal()
+                return
+            }
+            
             self.waitingThreads.removeValue(forKey: id)
             next.async {
                 self.semaphore.signal()
@@ -175,22 +182,24 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
                     }
                 } completion: { _ in
                     UIView.performWithoutAnimation {
-                        if isScrolledToBottom || isScrolledToTop {
+//                        if isScrolledToBottom || isScrolledToTop {
                             
                             // step 5
                             // apply the rest of the changes to table's dataSource, i.e. inserts
                             log.debug("[uilist] 5 apply inserts \(id)")
-                            context.coordinator.sections = sections
-                            context.coordinator.ids = ids
                             
                             tableView.beginUpdates()
+                        
+                            context.coordinator.sections = sections
+                            context.coordinator.ids = ids
+                
                             for operation in insertOperations {
                                 applyOperation(operation, tableView: tableView)
                             }
                             tableView.endUpdates()
-                        } else {
-                            context.coordinator.ids = ids
-                        }
+//                        } else {
+//                            context.coordinator.ids = ids
+//                        }
                         
                         completionHandler()
                     }
